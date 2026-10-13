@@ -1,0 +1,41 @@
+# Dependencies
+node_modules/
+package-lock.json.bak
+
+# Environment variables & secrets (Keep passwords safe)
+.env
+.env.local
+.env.*.local
+
+# Logs (Winston & Node)
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Runtime data & temp files
+pids
+*.pid
+*.seed
+*.pid.lock
+tmp/
+temp/
+
+# OS generated files
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# IDE & Editor files
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+*.swp
+*.swo
+
+# Coverage & test output
+coverage/
+.nyc_output/

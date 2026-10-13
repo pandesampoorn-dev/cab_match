@@ -1,0 +1,32 @@
+{
+  "name": "h3-ride-dispatch-server",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Production ride-hailing dispatch server: PostgreSQL, Redis H3 supply index, BullMQ batch broadcast, OSRM ETA ranking, Socket.IO",
+  "type": "module",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "fleet": "node scripts/simulate-fleet.js",
+    "test:batch": "node scripts/test-batch-dispatch.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "bullmq": "^6.3.14",
+    "dotenv": "^18.0.7",
+    "express": "^4.21.2",
+    "h3-js": "^4.1.0",
+    "ioredis": "^6.0.0",
+    "pg": "^8.23.1",
+    "pg-hstore": "^2.3.4",
+    "sequelize": "^6.37.8",
+    "socket.io": "^4.8.1",
+    "winston": "^3.19.0"
+  },
+  "devDependencies": {
+    "socket.io-client": "^4.8.1"
+  }
+}

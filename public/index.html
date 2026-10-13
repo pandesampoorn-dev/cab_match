@@ -1,0 +1,1148 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>H3 Dispatch Ops</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet"
+    href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+  <style>
+    :root {
+      --bg: #EEF2F1;
+      --panel: #FFFFFF;
+      --ink: #15201E;
+      --muted: #5E6B68;
+      --line: #D5DDDB;
+      --map: #E6ECEA;
+      --hex: #4A5A56;
+      --rider: #3E54C8;
+      --rider-soft: #E3E7FA;
+      --driver: #0E8A73;
+      --driver-soft: #DCF1EC;
+      --phone: #1F2A28;
+      --search: #D9860F;
+      --search-soft: #FBEBD2;
+      --busy: #7A6F66;
+      --danger: #B83A26;
+      --danger-soft: #F8E1DC;
+      --focus: #3E54C8;
+      --sans: "Instrument Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+      --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      color-scheme: light;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        color-scheme: dark;
+        --bg: #0E1413;
+        --panel: #151D1B;
+        --ink: #E3EBE8;
+        --muted: #90A09B;
+        --line: #26322F;
+        --map: #111917;
+        --hex: #A9BBB6;
+        --rider: #8E9DFF;
+        --rider-soft: #232A4D;
+        --driver: #3BC9AA;
+        --driver-soft: #143129;
+        --phone: #F2F6F5;
+        --search: #F0AA42;
+        --search-soft: #3A2B12;
+        --busy: #A89D93;
+        --danger: #F07A63;
+        --danger-soft: #3A1D17;
+        --focus: #8E9DFF;
+      }
+    }
+
+    * {
+      box-sizing: border-box
+    }
+
+    html,
+    body {
+      height: 100%;
+      margin: 0
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--ink);
+      font-family: var(--sans);
+      font-size: 14px;
+      line-height: 1.45
+    }
+
+    button,
+    input,
+    select {
+      font: inherit;
+      color: inherit
+    }
+
+    :focus-visible {
+      outline: 2px solid var(--focus);
+      outline-offset: 2px
+    }
+
+    .app {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 400px;
+      height: 100%
+    }
+
+    .mapwrap {
+      position: relative;
+      min-height: 0;
+      border-right: 1px solid var(--line)
+    }
+
+    #map {
+      position: absolute;
+      inset: 0;
+      background: var(--map);
+      font-family: var(--sans)
+    }
+
+    .overlay {
+      position: absolute;
+      z-index: 800;
+      pointer-events: none
+    }
+
+    .overlay>* {
+      pointer-events: auto
+    }
+
+    .tl {
+      left: 14px;
+      top: 14px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      max-width: calc(100% - 80px)
+    }
+
+    .bl {
+      left: 14px;
+      bottom: 24px;
+      display: grid;
+      gap: 8px;
+      justify-items: start;
+      max-width: calc(100% - 28px)
+    }
+
+    .chip {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 6px 10px;
+      font-size: 12px;
+      color: var(--muted);
+      box-shadow: 0 1px 4px rgba(0, 0, 0, .08)
+    }
+
+    .chip b {
+      color: var(--ink);
+      font-weight: 600
+    }
+
+    .chip.live {
+      display: flex;
+      align-items: center;
+      gap: 7px
+    }
+
+    .chip.live i {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--danger)
+    }
+
+    .chip.live.on i {
+      background: var(--driver)
+    }
+
+    .cellread {
+      font-family: var(--mono);
+      font-size: 11.5px
+    }
+
+    .legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px 14px
+    }
+
+    .lg {
+      display: flex;
+      align-items: center;
+      gap: 6px
+    }
+
+    .sw {
+      width: 11px;
+      height: 11px;
+      border-radius: 50%;
+      flex: none
+    }
+
+    .sw.r {
+      background: var(--rider)
+    }
+
+    .sw.d {
+      background: var(--driver);
+      border-radius: 3px
+    }
+
+    .sw.ph {
+      background: var(--driver);
+      border-radius: 3px;
+      box-shadow: 0 0 0 2px var(--phone)
+    }
+
+    .sw.s {
+      background: var(--search-soft);
+      border: 1.5px solid var(--search);
+      border-radius: 2px
+    }
+
+    .sw.h {
+      background: var(--driver-soft);
+      border: 1px solid var(--driver);
+      border-radius: 2px
+    }
+
+    .sw.p {
+      height: 0;
+      width: 16px;
+      border-radius: 0;
+      border-top: 2.5px dashed var(--rider)
+    }
+
+    .sw.t {
+      height: 0;
+      width: 16px;
+      border-radius: 0;
+      border-top: 3px solid var(--driver)
+    }
+
+    .leaflet-container {
+      font-family: var(--sans)
+    }
+
+    .leaflet-control-attribution {
+      font-size: 10.5px
+    }
+
+    .leaflet-bar a {
+      background: var(--panel);
+      color: var(--ink);
+      border-color: var(--line)
+    }
+
+    .mkwrap {
+      background: none;
+      border: 0
+    }
+
+    .mk {
+      position: relative;
+      width: 16px;
+      height: 16px
+    }
+
+    .mk .pin {
+      position: absolute;
+      inset: 0;
+      border-radius: 50%;
+      background: var(--rider);
+      border: 2px solid #fff;
+      box-shadow: 0 1px 4px rgba(0, 0, 0, .4)
+    }
+
+    .mk.d .pin {
+      border-radius: 4px;
+      background: var(--driver)
+    }
+
+    .mk.d.phone .pin {
+      box-shadow: 0 0 0 2.5px var(--phone), 0 1px 6px rgba(0, 0, 0, .4)
+    }
+
+    .mk.d.busy .pin {
+      background: var(--busy)
+    }
+
+    .mk.d.stale .pin {
+      background: var(--muted);
+      opacity: .6
+    }
+
+    .mk.d.trip .pin {
+      background: var(--driver)
+    }
+
+    .mk.d.offered .pin::after {
+      content: "";
+      position: absolute;
+      inset: -7px;
+      border-radius: 6px;
+      border: 2px solid var(--search);
+      animation: pulse 1.1s ease-out infinite
+    }
+
+    .mk.r.none .pin {
+      background: var(--danger)
+    }
+
+    .mk.r.app .pin {
+      box-shadow: 0 0 0 2.5px var(--phone), 0 1px 6px rgba(0, 0, 0, .4)
+    }
+
+    .mk.r.search .pin::after {
+      content: "";
+      position: absolute;
+      inset: -8px;
+      border-radius: 50%;
+      border: 2px solid var(--search);
+      animation: pulse 1.1s ease-out infinite
+    }
+
+    @keyframes pulse {
+      from {
+        transform: scale(.6);
+        opacity: 1
+      }
+
+      to {
+        transform: scale(1.4);
+        opacity: 0
+      }
+    }
+
+    .mk.sel .pin {
+      outline: 2px solid var(--ink);
+      outline-offset: 3px
+    }
+
+    .mk .lab {
+      position: absolute;
+      left: 21px;
+      top: 50%;
+      transform: translateY(-50%);
+      white-space: nowrap;
+      font: 600 12px var(--sans);
+      background: var(--panel);
+      color: var(--rider);
+      padding: 1px 6px;
+      border-radius: 5px;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, .2)
+    }
+
+    .mk.d .lab {
+      color: var(--driver)
+    }
+
+    .mk.d.busy .lab {
+      color: var(--busy)
+    }
+
+    .mk.d.offered .lab {
+      color: var(--search)
+    }
+
+    .mk.r.none .lab {
+      color: var(--danger)
+    }
+
+    .mk .tag {
+      font: 600 9.5px var(--mono);
+      letter-spacing: .04em;
+      background: var(--phone);
+      color: var(--panel);
+      border-radius: 3px;
+      padding: 0 4px;
+      margin-right: 5px;
+      vertical-align: 1px
+    }
+
+    .mk.drop .pin {
+      border-radius: 2px;
+      background: var(--panel);
+      border: 2px solid var(--driver);
+      transform: rotate(45deg);
+      inset: 2px
+    }
+
+    .mk.drop .lab {
+      color: var(--muted);
+      font-weight: 500
+    }
+
+    .side {
+      background: var(--panel);
+      overflow-y: auto;
+      min-height: 0;
+      padding-inline: 18px;
+      padding-block: 18px 28px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px
+    }
+
+    .brand h1 {
+      font-size: 20px;
+      font-weight: 700;
+      letter-spacing: -.01em;
+      margin: 0
+    }
+
+    .brand p {
+      margin: 4px 0 0;
+      color: var(--muted);
+      font-size: 13px
+    }
+
+    .eyebrow {
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin: 0 0 8px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px
+    }
+
+    .eyebrow .btn {
+      text-transform: none;
+      letter-spacing: 0
+    }
+
+    .seg {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      border: 1px solid var(--line);
+      border-radius: 9px;
+      padding: 3px;
+      gap: 3px
+    }
+
+    .seg button {
+      border: 0;
+      background: transparent;
+      border-radius: 6px;
+      padding: 7px 8px;
+      cursor: pointer;
+      font-weight: 500;
+      color: var(--muted);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 7px
+    }
+
+    .seg button[aria-pressed="true"] {
+      background: var(--bg);
+      color: var(--ink)
+    }
+
+    .hint {
+      font-size: 12px;
+      color: var(--muted);
+      margin: 6px 0 0
+    }
+
+    .row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center
+    }
+
+    .btn {
+      border: 1px solid var(--line);
+      background: var(--panel);
+      border-radius: 8px;
+      padding: 7px 11px;
+      cursor: pointer;
+      font-weight: 500;
+      font-size: 13px
+    }
+
+    .btn:hover {
+      border-color: var(--muted)
+    }
+
+    .btn.sm {
+      padding: 4px 9px;
+      font-size: 12px
+    }
+
+    .btn.book {
+      background: var(--rider);
+      border-color: var(--rider);
+      color: #fff
+    }
+
+    @media (prefers-color-scheme: dark) {
+      .btn.book {
+        color: #0E1413
+      }
+    }
+
+    .btn:disabled {
+      opacity: .45;
+      cursor: default
+    }
+
+    label.f {
+      display: grid;
+      gap: 3px;
+      font-size: 12px;
+      color: var(--muted)
+    }
+
+    label.f select {
+      border: 1px solid var(--line);
+      background: var(--bg);
+      border-radius: 7px;
+      padding: 6px 8px;
+      width: 100%;
+      font-size: 13px
+    }
+
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      border: 1px solid var(--line);
+      border-radius: 10px
+    }
+
+    .stat {
+      padding: 9px 10px;
+      border-left: 1px solid var(--line)
+    }
+
+    .stat:first-child {
+      border-left: 0
+    }
+
+    .stat .n {
+      font-size: 20px;
+      font-weight: 600;
+      font-variant-numeric: tabular-nums;
+      line-height: 1.1
+    }
+
+    .stat .l {
+      font-size: 11px;
+      color: var(--muted)
+    }
+
+    .list {
+      display: grid;
+      border-top: 1px solid var(--line)
+    }
+
+    .item {
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr) auto;
+      gap: 10px;
+      align-items: center;
+      padding: 9px 2px;
+      border-bottom: 1px solid var(--line);
+      cursor: pointer
+    }
+
+    .item.sel {
+      background: var(--bg);
+      margin-inline: -18px;
+      padding-inline: 20px
+    }
+
+    .dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%
+    }
+
+    .dot.r {
+      background: var(--rider)
+    }
+
+    .dot.d {
+      background: var(--driver);
+      border-radius: 2px
+    }
+
+    .dot.d.busy {
+      background: var(--busy)
+    }
+
+    .dot.d.phone {
+      box-shadow: 0 0 0 2px var(--phone)
+    }
+
+    .nm {
+      font-weight: 600;
+      font-size: 13.5px;
+      display: flex;
+      gap: 6px;
+      align-items: center;
+      flex-wrap: wrap
+    }
+
+    .meta {
+      font-size: 12px;
+      color: var(--muted);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap
+    }
+
+    .mono {
+      font-family: var(--mono);
+      font-size: 11px
+    }
+
+    .pill {
+      display: inline-block;
+      font-size: 11px;
+      font-weight: 600;
+      padding: 2px 7px;
+      border-radius: 99px;
+      white-space: nowrap
+    }
+
+    .p-idle {
+      background: var(--bg);
+      color: var(--muted)
+    }
+
+    .p-search {
+      background: var(--search-soft);
+      color: var(--search)
+    }
+
+    .p-match {
+      background: var(--rider-soft);
+      color: var(--rider)
+    }
+
+    .p-ride {
+      background: var(--driver-soft);
+      color: var(--driver)
+    }
+
+    .p-none {
+      background: var(--danger-soft);
+      color: var(--danger)
+    }
+
+    .p-avail {
+      background: var(--driver-soft);
+      color: var(--driver)
+    }
+
+    .p-busy {
+      background: var(--bg);
+      color: var(--busy);
+      border: 1px solid var(--line)
+    }
+
+    .p-app {
+      background: var(--phone);
+      color: var(--panel);
+      font-family: var(--mono);
+      font-size: 10px;
+      letter-spacing: .04em
+    }
+
+    .acts {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+      justify-content: flex-end
+    }
+
+    .empty {
+      color: var(--muted);
+      font-size: 12.5px;
+      padding: 10px 0;
+      border-bottom: 1px solid var(--line)
+    }
+
+    .assign {
+      display: grid;
+      border-top: 1px solid var(--line)
+    }
+
+    .arow {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 4px 10px;
+      padding: 9px 0;
+      border-bottom: 1px solid var(--line)
+    }
+
+    .pair {
+      font-weight: 600;
+      font-size: 13.5px
+    }
+
+    .pair .arrow {
+      color: var(--muted);
+      font-weight: 400;
+      padding-inline: 4px
+    }
+
+    .pair .rn {
+      color: var(--rider)
+    }
+
+    .pair .dn {
+      color: var(--driver)
+    }
+
+    .adet {
+      grid-column: 1/-1;
+      font-size: 12px;
+      color: var(--muted);
+      font-variant-numeric: tabular-nums
+    }
+
+    .log {
+      font-family: var(--mono);
+      font-size: 11.5px;
+      line-height: 1.55;
+      display: grid;
+      gap: 5px;
+      max-height: 300px;
+      overflow-y: auto;
+      border: 1px solid var(--line);
+      border-radius: 9px;
+      padding: 10px;
+      background: var(--bg)
+    }
+
+    .log .t {
+      color: var(--muted)
+    }
+
+    .log .ring {
+      color: var(--search)
+    }
+
+    .log .ok {
+      color: var(--driver)
+    }
+
+    .log .warn {
+      color: var(--danger)
+    }
+
+    .log .ride {
+      color: var(--ink);
+      font-weight: 500
+    }
+
+    .toast {
+      position: fixed;
+      left: 50%;
+      bottom: 24px;
+      transform: translateX(-50%);
+      background: var(--ink);
+      color: var(--panel);
+      padding: 8px 14px;
+      border-radius: 8px;
+      font-size: 13px;
+      z-index: 2000
+    }
+
+    @media (max-width:860px) {
+      .app {
+        grid-template-columns: 1fr;
+        grid-template-rows: 62vh auto;
+        height: auto
+      }
+
+      html,
+      body {
+        height: auto
+      }
+
+      .mapwrap {
+        border-right: 0;
+        border-bottom: 1px solid var(--line)
+      }
+
+      .side {
+        overflow: visible
+      }
+
+      .legend {
+        display: none
+      }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .mk .pin::after {
+        animation: none !important
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <div class="app">
+    <div class="mapwrap">
+      <div id="map" aria-label="Live map of riders, drivers and routes over H3 cells"></div>
+      <div class="overlay tl">
+        <div class="chip live" id="live"><i></i><span id="liveText">Connecting…</span></div>
+        <div class="chip">Click map to add a <b id="hudMode">rider</b></div>
+        <div class="chip">H3 res <b id="hudRes">8</b></div>
+      </div>
+      <div class="overlay bl">
+        <div class="chip legend" aria-hidden="true">
+          <span class="lg"><span class="sw r"></span>Rider</span>
+          <span class="lg"><span class="sw r" style="box-shadow:0 0 0 2px var(--phone)"></span>Rider app</span>
+          <span class="lg"><span class="sw ph"></span>Driver app</span>
+          <span class="lg"><span class="sw d"></span>Bot driver</span>
+          <span class="lg"><span class="sw p"></span>To pickup</span>
+          <span class="lg"><span class="sw t"></span>Trip</span>
+          <span class="lg"><span class="sw h"></span>Free drivers</span>
+          <span class="lg"><span class="sw s"></span>Ring searched</span>
+        </div>
+        <div class="chip cellread" id="cellread">Hover the map to see the H3 cell ID</div>
+      </div>
+    </div>
+
+    <aside class="side">
+      <div class="brand">
+        <h1>H3 Dispatch Ops</h1>
+        <p>Live view of the dispatch server. Phone users (rider and driver apps) are marked APP; you can also add riders
+          and bot drivers here.</p>
+      </div>
+
+      <section>
+        <p class="eyebrow">Click on map adds</p>
+        <div class="seg" role="group" aria-label="What a map click adds">
+          <button id="modeRider" aria-pressed="true"><span class="dot r"></span>Rider</button>
+          <button id="modeBot" aria-pressed="false"><span class="dot d"></span>Bot driver</button>
+        </div>
+        <p class="hint">Riders get booked from the list below. With no bots online, every ride goes to the driver app.
+        </p>
+      </section>
+
+      <section>
+        <div class="row">
+          <label class="f" style="flex:1"><span>Bot driving speed</span>
+            <select id="speed">
+              <option value="1">1× real time</option>
+              <option value="3">3×</option>
+              <option value="6">6×</option>
+              <option value="12">12×</option>
+            </select>
+          </label>
+        </div>
+        <div class="row" style="margin-top:10px">
+          <button class="btn book" id="bookAll">Book all idle riders</button>
+          <button class="btn" id="clearBots">Remove idle bots</button>
+          <button class="btn" id="fit">Fit all</button>
+          <button class="btn" id="reset">Reset demo</button>
+        </div>
+      </section>
+
+      <div class="stats" aria-live="polite">
+        <div class="stat">
+          <div class="n" id="sFree">0</div>
+          <div class="l">Free drivers</div>
+        </div>
+        <div class="stat">
+          <div class="n" id="sBusy">0</div>
+          <div class="l">On a job</div>
+        </div>
+        <div class="stat">
+          <div class="n" id="sWait">0</div>
+          <div class="l">Waiting</div>
+        </div>
+        <div class="stat">
+          <div class="n" id="sDone">0</div>
+          <div class="l">Trips done</div>
+        </div>
+      </div>
+
+      <section>
+        <p class="eyebrow">Allocations</p>
+        <div class="assign" id="assign"></div>
+      </section>
+      <section>
+        <p class="eyebrow">Riders</p>
+        <div class="list" id="riders"></div>
+      </section>
+      <section>
+        <p class="eyebrow">Drivers</p>
+        <div class="list" id="drivers"></div>
+      </section>
+      <section>
+        <p class="eyebrow">Recent rides</p>
+        <div class="list" id="recent"></div>
+      </section>
+      <section>
+        <p class="eyebrow">Server log</p>
+        <div class="log" id="log" aria-live="polite"></div>
+      </section>
+    </aside>
+  </div>
+  <div class="toast" id="toast" hidden></div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/h3-js@4.1.0/dist/h3-js.umd.js"></script>
+  <script src="/socket.io/socket.io.js"></script>
+  <script>
+    (function () {
+      "use strict";
+      const $ = id => document.getElementById(id);
+      const H = window.h3;
+      const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+      const css = k => getComputedStyle(document.documentElement).getPropertyValue('--' + k).trim();
+      const mins = m => `${Math.max(1, Math.round(m))} min`;
+
+      let cfg = { h3Res: 8, city: { lat: 28.625, lng: 77.215 } };
+      let snap = { drivers: [], riders: [], rides: [], supply: {}, stats: {} };
+      let mode = 'rider', selected = null, firstFit = true;
+
+      // ---------------- socket
+      const sock = io('/ops');
+      function cmd(ev, data) {
+        return new Promise(res => sock.emit(ev, data || {}, r => { if (!r.ok) toast(r.error); res(r); }));
+      }
+      sock.on('connect', () => { $('live').classList.add('on'); $('liveText').textContent = 'Live'; });
+      sock.on('disconnect', () => { $('live').classList.remove('on'); $('liveText').textContent = 'Server offline · reconnecting'; });
+      sock.on('hello', h => { cfg = h.config; $('hudRes').textContent = cfg.h3Res; $('speed').value = String(cfg.botSpeed); if (![...$('speed').options].some(o => o.value == String(cfg.botSpeed))) $('speed').add(new Option(cfg.botSpeed + '×', cfg.botSpeed, true, true)); drawGrid(); });
+      sock.on('logs', ls => { logLines = ls.map(fmtLog); $('log').innerHTML = logLines.join(''); });
+      sock.on('log', l => { logLines.unshift(fmtLog(l)); logLines = logLines.slice(0, 150); $('log').innerHTML = logLines.join(''); });
+      sock.on('snapshot', s => { snap = s; draw(); if (firstFit && (s.drivers.length || s.riders.length)) { firstFit = false; fitAll(); } });
+
+      let logLines = [];
+      function fmtLog(l) { return `<div class="${l.level}"><span class="t">${new Date(l.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span> ${esc(l.msg)}</div>`; }
+      let toastT;
+      function toast(msg) { const t = $('toast'); t.textContent = msg; t.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => t.hidden = true, 3200); }
+
+      // ---------------- map
+      const map = L.map('map', { zoomControl: false }).setView([cfg.city.lat, cfg.city.lng], 13);
+      L.control.zoom({ position: 'topright' }).addTo(map);
+      const darkQ = matchMedia('(prefers-color-scheme: dark)');
+      let tiles;
+      function setTiles() {
+        if (tiles) map.removeLayer(tiles);
+        tiles = L.tileLayer(`https://{s}.basemaps.cartocdn.com/${darkQ.matches ? 'dark_all' : 'rastertiles/voyager'}/{z}/{x}/{y}{r}.png`, {
+          subdomains: 'abcd', maxZoom: 19,
+          attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a> · Routes: OSRM'
+        }).addTo(map);
+        drawGrid();
+      }
+      darkQ.addEventListener('change', setTiles);
+      map.createPane('hex'); map.getPane('hex').style.zIndex = 350;
+      map.createPane('routes'); map.getPane('routes').style.zIndex = 450;
+      const hexR = L.canvas({ pane: 'hex', padding: .3 });
+      const gridLayer = L.layerGroup().addTo(map), searchLayer = L.layerGroup().addTo(map), routeLayer = L.layerGroup().addTo(map);
+      const hoverPoly = L.polygon([], { pane: 'hex', renderer: hexR, weight: 2, fill: false, interactive: false }).addTo(map);
+      let cellLayers = new Map();
+
+      function drawGrid() {
+        gridLayer.clearLayers(); cellLayers.clear();
+        if (map.getZoom() < 12) return;
+        const b = map.getBounds().pad(.15);
+        let cells; try { cells = H.polygonToCells([[b.getSouth(), b.getWest()], [b.getSouth(), b.getEast()], [b.getNorth(), b.getEast()], [b.getNorth(), b.getWest()]], cfg.h3Res); } catch (e) { return; }
+        if (cells.length > 4000) return;
+        const stroke = css('hex');
+        cells.forEach(c => { const p = L.polygon(H.cellToBoundary(c), { pane: 'hex', renderer: hexR, interactive: false, color: stroke, weight: .7, opacity: .35, fillColor: css('driver'), fillOpacity: 0 }); gridLayer.addLayer(p); cellLayers.set(c, p); });
+        heat();
+      }
+      function heat() {
+        const fill = css('driver');
+        cellLayers.forEach((p, c) => { const n = snap.supply[c] || 0; p.setStyle({ fillColor: fill, fillOpacity: n ? Math.min(.14 + n * .12, .45) : 0 }); });
+      }
+      map.on('moveend zoomend', drawGrid);
+
+      // ---------------- markers
+      const markers = new Map(); // id -> marker
+      const dropMarkers = new Map();
+      function icon(html) { return L.divIcon({ className: 'mkwrap', iconSize: [16, 16], iconAnchor: [8, 8], html }); }
+      function upsertMarker(id, lat, lng, cls, label, tag) {
+        let m = markers.get(id);
+        const html = `<div class="mk ${cls}${selected === id ? ' sel' : ''}"><span class="pin"></span><span class="lab">${tag ? `<span class="tag">${tag}</span>` : ''}${esc(label)}</span></div>`;
+        if (!m) {
+          m = L.marker([lat, lng], { icon: icon(html), keyboard: false, riseOnHover: true }).addTo(map);
+          m._html = html; m.on('click', () => { selected = selected === id ? null : id; draw(); });
+          markers.set(id, m);
+        } else {
+          m.setLatLng([lat, lng]);
+          if (m._html !== html) { m._html = html; m.setIcon(icon(html)); }
+        }
+        m._seen = true;
+      }
+
+      const rideBy = id => snap.rides.find(r => r.id === id);
+      function draw() {
+        const s = snap;
+        markers.forEach(m => m._seen = false);
+        // riders
+        s.riders.forEach(r => {
+          if (!Number.isFinite(r.lat)) return; // app rider without a location yet
+          const ride = r.rideId && rideBy(r.rideId);
+          if (ride && ride.status === 'on_trip') return; // inside the car
+          const st = ride?.status;
+          const cls = 'r' + (r.kind === 'app' ? ' app' : '') + (st === 'searching' || st === 'offered' ? ' search' : '') + (st === 'no_driver' ? ' none' : '');
+          upsertMarker(r.id, r.lat, r.lng, cls, r.name, r.kind === 'app' ? 'APP' : '');
+        });
+        // drivers
+        const now = Date.now();
+        s.drivers.forEach(d => {
+          if (!Number.isFinite(d.lat)) return;
+          const ride = d.rideId && rideBy(d.rideId);
+          let label = d.name;
+          if (d.status === 'offered' && ride?.offer) label += ` · offer ${Math.max(0, Math.ceil((ride.offer.expiresAt - now) / 1000))}s`;
+          if (d.status === 'en_route' && ride) label += ` → ${ride.riderName}`;
+          if (d.status === 'arrived' && ride) label += ` · waiting for ${ride.riderName}`;
+          if (d.status === 'on_trip' && ride) label += ` + ${ride.riderName}`;
+          if (d.stale) label += ' · no GPS';
+          const cls = 'd' + (d.kind === 'phone' ? ' phone' : '') + (d.status === 'offered' ? ' offered' : '') + (['en_route', 'arrived'].includes(d.status) ? ' busy' : '') + (d.status === 'on_trip' ? ' trip' : '') + (d.stale ? ' stale' : '');
+          upsertMarker(d.id, d.lat, d.lng, cls, label, d.kind === 'phone' ? 'APP' : '');
+        });
+        markers.forEach((m, id) => { if (!m._seen) { map.removeLayer(m); markers.delete(id); } });
+
+        // routes + drop markers
+        routeLayer.clearLayers();
+        const seenDrops = new Set();
+        s.rides.forEach(r => {
+          if (r.route && r.route.coords?.length) {
+            const pickup = r.route.phase === 'pickup';
+            L.polyline(r.route.coords, { pane: 'routes', interactive: false, weight: pickup ? 4 : 5, opacity: .85, lineCap: 'round', color: pickup ? css('rider') : css('driver'), dashArray: pickup ? '1 9' : null }).addTo(routeLayer);
+          }
+          if (['accepted', 'arrived', 'on_trip'].includes(r.status)) {
+            seenDrops.add(r.id);
+            if (!dropMarkers.has(r.id)) dropMarkers.set(r.id, L.marker([r.drop.lat, r.drop.lng], { icon: icon(`<div class="mk drop"><span class="pin"></span><span class="lab">${esc(r.riderName)}'s drop</span></div>`), interactive: false, keyboard: false }).addTo(map));
+          }
+        });
+        dropMarkers.forEach((m, id) => { if (!seenDrops.has(id)) { map.removeLayer(m); dropMarkers.delete(id); } });
+
+        // search rings
+        searchLayer.clearLayers();
+        const sc = css('search');
+        s.rides.forEach(r => {
+          if (!r.search || !['searching', 'offered'].includes(r.status)) return;
+          r.search.rings.forEach((ring, k) => {
+            const cur = k === r.search.k;
+            ring.forEach(c => searchLayer.addLayer(L.polygon(H.cellToBoundary(c), { pane: 'hex', renderer: hexR, interactive: false, color: sc, weight: cur ? 1.8 : 0, opacity: .9, fillColor: sc, fillOpacity: cur ? .3 : .1 })));
+          });
+        });
+        heat();
+        renderSide();
+      }
+
+      // ---------------- side panel
+      const RS = { requested: ['Requested', 'p-search'], searching: ['Searching', 'p-search'], offered: ['Offer sent', 'p-search'], accepted: ['Driver on the way', 'p-match'], arrived: ['Driver arrived', 'p-match'], on_trip: ['On trip', 'p-ride'], completed: ['Completed', 'p-idle'], cancelled: ['Cancelled', 'p-none'], no_driver: ['No driver', 'p-none'] };
+      const DS = { available: ['Free', 'p-avail'], offered: ['Offer pending', 'p-search'], en_route: ['To pickup', 'p-busy'], arrived: ['At pickup', 'p-busy'], on_trip: ['On trip', 'p-busy'], offline: ['Offline', 'p-idle'] };
+      const cache = {};
+      function setHTML(id, html) { if (cache[id] !== html) { cache[id] = html; $(id).innerHTML = html; } }
+      function distKm(a, b) { return H.greatCircleDistance([a.lat, a.lng], [b.lat, b.lng], 'km'); }
+
+      function renderSide() {
+        const s = snap;
+        $('sFree').textContent = s.stats.free ?? 0; $('sBusy').textContent = s.stats.busy ?? 0; $('sWait').textContent = s.stats.waiting ?? 0; $('sDone').textContent = s.stats.completed ?? 0;
+        const drv = id => s.drivers.find(d => d.id === id);
+
+        const act = s.rides.filter(r => ['offered', 'accepted', 'arrived', 'on_trip'].includes(r.status));
+        setHTML('assign', act.length ? act.map(r => {
+          const d = drv(r.driverId || r.offer?.driverId);
+          let detail = '';
+          if (r.status === 'offered') detail = `Waiting for ${esc(r.offer.driverName)} to accept · pickup ${r.offer.pickupKm.toFixed(2)} km · found in ring ${r.foundInRing}`;
+          else if (r.status === 'accepted') detail = `${d ? mins(distKm(d, r.pickup) / 24 * 60) + ' away' : ''} · ₹${r.fare} · found in ring ${r.foundInRing}`;
+          else if (r.status === 'arrived') detail = `Driver at pickup · ₹${r.fare}`;
+          else detail = `${r.tripKm.toFixed(1)} km trip${d ? ` · ${mins(distKm(d, r.drop) / 24 * 60)} to drop` : ''} · ₹${r.fare}`;
+          const dn = r.driverName || r.offer?.driverName || '—';
+          return `<div class="arow"><div class="pair"><span class="rn">${esc(r.riderName)}</span><span class="arrow">→</span><span class="dn">${esc(dn)}</span>${d?.kind === 'phone' ? ' <span class="pill p-app">APP</span>' : ''}</div><span class="pill ${RS[r.status][1]}">${RS[r.status][0]}</span><div class="adet">${detail}</div></div>`;
+        }).join('') : `<div class="empty">No active allocations. Book a rider to see a match.</div>`);
+
+        setHTML('riders', s.riders.length ? s.riders.map(r => {
+          const ride = r.rideId && rideBy(r.rideId);
+          const st = ride?.status || 'idle';
+          const [lab, cls] = RS[st] || ['Idle', 'p-idle'];
+          const canBook = !ride || ['completed', 'cancelled'].includes(st);
+          const active = ride && !['completed', 'cancelled'].includes(st);
+          const meta = st === 'searching' || st === 'offered' ? `searching ring ${ride.search?.k ?? 0} from <span class="mono">${ride.originCell}</span>` : ride ? `<span class="mono">${ride.originCell}</span> · ₹${ride.fare}` : Number.isFinite(r.lat) ? `${r.lat.toFixed(4)}, ${r.lng.toFixed(4)}` : 'waiting for location';
+          return `<div class="item${selected === r.id ? ' sel' : ''}" data-id="${r.id}"><span class="dot r"></span><div style="min-width:0"><div class="nm">${esc(r.name)} ${r.kind === 'app' ? '<span class="pill p-app">APP</span>' : ''}<span class="pill ${canBook && !ride ? 'p-idle' : cls}">${canBook && !ride ? 'Idle' : lab}</span></div><div class="meta">${meta}</div></div><div class="acts">${canBook ? `<button class="btn sm book" data-book="${r.id}">${ride ? 'Book again' : 'Book'}</button>` : ''}${active ? `<button class="btn sm" data-cancel="${ride.id}">Cancel ride</button>` : ''}<button class="btn sm" data-rmrider="${r.id}" aria-label="Remove ${esc(r.name)}">Remove</button></div></div>`;
+        }).join('') : `<div class="empty">No riders. Click the map to add one.</div>`);
+
+        const ds = [...s.drivers].sort((a, b) => (a.kind === b.kind ? 0 : a.kind === 'phone' ? -1 : 1));
+        setHTML('drivers', ds.length ? ds.map(d => {
+          const [lab, cls] = DS[d.status] || [d.status, 'p-idle'];
+          const ride = d.rideId && rideBy(d.rideId);
+          const meta = [ride ? `${ride.riderName}` : '', d.stale ? 'no GPS' : '', !d.connected ? 'app disconnected' : '', d.cell ? `<span class="mono">${d.cell}</span>` : (Number.isFinite(d.lat) ? '' : 'waiting for GPS')].filter(Boolean).join(' · ');
+          return `<div class="item${selected === d.id ? ' sel' : ''}" data-id="${d.id}"><span class="dot d${d.status !== 'available' ? ' busy' : ''}${d.kind === 'phone' ? ' phone' : ''}"></span><div style="min-width:0"><div class="nm">${esc(d.name)} ${d.kind === 'phone' ? '<span class="pill p-app">APP</span>' : ''}<span class="pill ${cls}">${lab}</span></div><div class="meta">${meta || '&nbsp;'}</div></div>${d.kind === 'bot' ? `<button class="btn sm" data-rmbot="${d.id}" ${d.status !== 'available' ? 'disabled' : ''}>Offline</button>` : '<span></span>'}</div>`;
+        }).join('') : `<div class="empty">No drivers online. Open the driver app and go online, or click the map in Bot mode.</div>`);
+
+        const recent = s.rides.filter(r => ['completed', 'cancelled'].includes(r.status)).slice(0, 8);
+        setHTML('recent', recent.length ? recent.map(r => `<div class="item" style="cursor:default"><span class="dot ${r.status === 'completed' ? 'd' : 'r'}"></span><div style="min-width:0"><div class="nm">${esc(r.riderName)}${r.driverName ? ` <span style="color:var(--muted);font-weight:400">with</span> ${esc(r.driverName)}` : ''}</div><div class="meta">${r.tripKm.toFixed(1)} km · ₹${r.fare}</div></div><span class="pill ${RS[r.status][1]}">${RS[r.status][0]}</span></div>`).join('') : `<div class="empty">Finished rides appear here.</div>`);
+      }
+
+      // ---------------- interactions
+      document.addEventListener('click', e => {
+        const t = e.target.closest('button');
+        if (t) {
+          if (t.dataset.book) return void cmd('ride:request', { riderId: t.dataset.book });
+          if (t.dataset.cancel) return void cmd('ride:cancel', { rideId: t.dataset.cancel });
+          if (t.dataset.rmrider) return void cmd('rider:remove', { id: t.dataset.rmrider });
+          if (t.dataset.rmbot) return void cmd('bot:remove', { id: t.dataset.rmbot });
+        }
+        const it = e.target.closest('.item[data-id]');
+        if (it && !t) {
+          selected = selected === it.dataset.id ? null : it.dataset.id;
+          const o = [...snap.drivers, ...snap.riders].find(x => x.id === it.dataset.id);
+          if (o && selected && Number.isFinite(o.lat)) map.panTo([o.lat, o.lng]);
+          draw();
+        }
+      });
+      document.addEventListener('keydown', e => {
+        if ((e.key === 'Delete' || e.key === 'Backspace') && selected && snap.riders.some(r => r.id === selected) && !e.target.closest('input,select,textarea')) {
+          e.preventDefault(); cmd('rider:remove', { id: selected }); selected = null;
+        }
+      });
+      function setMode(m) { mode = m; $('modeRider').setAttribute('aria-pressed', m === 'rider'); $('modeBot').setAttribute('aria-pressed', m === 'bot'); $('hudMode').textContent = m === 'rider' ? 'rider' : 'bot driver'; }
+      $('modeRider').onclick = () => setMode('rider');
+      $('modeBot').onclick = () => setMode('bot');
+      map.on('click', e => { const { lat, lng } = e.latlng; cmd(mode === 'rider' ? 'rider:add' : 'bot:add', { lat, lng }); });
+      map.on('mousemove', e => {
+        const { lat, lng } = e.latlng, c = H.latLngToCell(lat, lng, cfg.h3Res);
+        hoverPoly.setLatLngs(H.cellToBoundary(c)); hoverPoly.setStyle({ color: css('ink') });
+        const n = snap.supply[c] || 0;
+        $('cellread').innerHTML = `cell <b>${c}</b> · ${lat.toFixed(4)}, ${lng.toFixed(4)} · ${n} free driver${n === 1 ? '' : 's'}`;
+      });
+      map.on('mouseout', () => hoverPoly.setLatLngs([]));
+      $('speed').onchange = e => cmd('bots:speed', { speed: +e.target.value });
+      $('bookAll').onclick = () => snap.riders.forEach(r => { const ride = r.rideId && rideBy(r.rideId); if (!ride || ['completed', 'cancelled'].includes(ride.status)) cmd('ride:request', { riderId: r.id }); });
+      $('clearBots').onclick = () => cmd('bots:clear');
+      $('reset').onclick = () => { firstFit = true; cmd('demo:reset'); };
+      $('fit').onclick = fitAll;
+      function fitAll() {
+        const pts = [...snap.drivers, ...snap.riders].filter(o => Number.isFinite(o.lat)).map(o => [o.lat, o.lng]);
+        if (pts.length) map.fitBounds(pts, { padding: [60, 60], maxZoom: 15 });
+      }
+      setTiles();
+    })();
+  </script>
+</body>
+
+</html>
