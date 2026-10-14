@@ -71,8 +71,9 @@ export class SupplyService {
    * Driver goes online and available.
    */
   static async setOnline(driverId, pos) {
+    let locRes = null;
     if (pos && isLatLng(pos)) {
-      await this.updateLocation(driverId, pos);
+      locRes = await this.updateLocation(driverId, pos);
     }
 
     try {
@@ -86,7 +87,7 @@ export class SupplyService {
       { where: { id: driverId } }
     );
 
-    return { driverId, online: true, status: 'available' };
+    return { driverId, online: true, status: 'available', cell: locRes?.cell || null };
   }
 
   /**

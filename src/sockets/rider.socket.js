@@ -51,7 +51,7 @@ export function setupRiderSocket(io) {
     const r = socket.data.rider;
     socket.join(`rider:${r.id}`);
 
-    // Re-sync on connect with full ride payload (including searching, offered, and recent no_driver)
+    // Re-sync on connect with active ongoing ride payload
     const activeRide = await DispatchService.getActiveRideOfRider(r.id);
     const ridePayload = activeRide
       ? await DispatchService.getFullRidePayload(activeRide)

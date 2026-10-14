@@ -52,10 +52,52 @@ Sent by the server immediately upon connection or reconnect:
     "heading": 135
   },
   "ride": null,
+  "route": null,
   "offer": null
 }
 ```
-*(When on an active ride or offer, full objects are provided instead of null).*
+*(When on an active ride or offer, full objects are provided instead of null; `route` is provided at root and also within `ride.route`).*
+
+**Active Ride Reconnect Example:**
+```json
+{
+  "driver": {
+    "id": "driver_01",
+    "name": "Rajesh Sharma",
+    "online": true,
+    "status": "busy",
+    "lat": 28.6251,
+    "lng": 77.2152,
+    "heading": 135
+  },
+  "ride": {
+    "id": "ride_1791919949941_1",
+    "status": "accepted",
+    "riderName": "Priya Sharma",
+    "riderPhone": "+919876543210",
+    "pickup": { "lat": 28.6139, "lng": 77.2090 },
+    "drop": { "lat": 28.6250, "lng": 77.2150 },
+    "fare": 90,
+    "distanceKm": 2.72,
+    "etaMin": 3,
+    "tripMin": 5,
+    "route": {
+      "phase": "pickup",
+      "coords": [[28.6251, 77.2152], [28.6139, 77.2090]],
+      "km": 1.5,
+      "min": 3
+    },
+    "tripRoute": [[28.6139, 77.2090], [28.6250, 77.2150]]
+  },
+  "route": {
+    "phase": "pickup",
+    "coords": [[28.6251, 77.2152], [28.6139, 77.2090]],
+    "km": 1.5,
+    "min": 3
+  },
+  "offer": null
+}
+```
 
 ---
 
@@ -187,7 +229,14 @@ Driver arrives at the passenger pickup point.
     "pickup": { "lat": 28.6139, "lng": 77.2090 },
     "drop": { "lat": 28.6250, "lng": 77.2150 },
     "fare": 90,
-    "distanceKm": 2.72
+    "distanceKm": 2.72,
+    "route": {
+      "phase": "pickup",
+      "coords": [[28.6139, 77.2090]],
+      "km": 0,
+      "min": 0
+    },
+    "tripRoute": [[28.6139, 77.2090], [28.6250, 77.2150]]
   },
   "route": {
     "phase": "pickup",
@@ -214,7 +263,14 @@ Driver starts the trip after rider boards.
     "drop": { "lat": 28.6250, "lng": 77.2150 },
     "fare": 90,
     "distanceKm": 2.72,
-    "tripMin": 5
+    "tripMin": 5,
+    "route": {
+      "phase": "trip",
+      "coords": [[28.6139, 77.2090], [28.6250, 77.2150]],
+      "km": 2.72,
+      "min": 5
+    },
+    "tripRoute": [[28.6139, 77.2090], [28.6250, 77.2150]]
   },
   "route": {
     "phase": "trip",
@@ -306,16 +362,16 @@ Broadcasted simultaneously to top available drivers in current batch. Drivers ar
 ```
 
 #### 2. Offer Revoked (`offer_revoked`)
-Sent when the 15-second timer expires, or another driver won the race.
+Sent when the 15-second timer expires, another driver won the race, or the rider cancelled while offer was pending:
 * **Event:** `offer_revoked`
 * **Payload:**
 ```json
 {
   "rideId": "ride_1791919949941_1",
-  "reason": "accepted_by_other"
+  "reason": "cancelled"
 }
 ```
-*(Reasons: `accepted_by_other`, `timeout`, `declined`)*
+*(Reasons: `accepted_by_other`, `timeout`, `declined`, `cancelled`)*
 
 #### 3. Live Ride Updates for Driver (`ride:update`)
 Pushed to driver on every milestone (`accepted`, `arrived`, `on_trip`) and during live tracking:
@@ -335,16 +391,17 @@ Sent when trip ends successfully.
 }
 ```
 
-#### 5. Ride Cancelled by Rider (`ride:cancelled`)
-Sent if rider cancels the ride before trip starts.
-* **Event:** `ride:cancelled`
+#### 5. Ride Ended Notification for Driver (`ride:ended`)
+Sent if rider or ops cancels the ride after driver accepted:
+* **Event:** `ride:ended`
 * **Payload:**
 ```json
 {
   "rideId": "ride_1791919949941_1",
-  "reason": "rider_cancelled"
+  "reason": "cancelled"
 }
 ```
+*(Reasons: `completed`, `cancelled`, `driver_cancelled`)*
 
 ---
 
@@ -361,7 +418,7 @@ Sent if rider cancels the ride before trip starts.
 ### Initial State / Reconnect (`sync`)
 Sent immediately upon connection / reconnect:
 * **Event:** `sync`
-* **Behavior:** Returns rider info and the active ride with full payload (planned `tripRoute`, `route`, `driver`, `etaMin`, `search` hex rings). Includes rides in `searching`, `offered`, `accepted`, `arrived`, `on_trip`, and recent `no_driver` states so reconnecting riders never lose state.
+* **Behavior:** Returns rider info and the active ongoing ride with full payload (planned `tripRoute`, `route`, `driver`, `etaMin`, `search` hex rings). Only ongoing rides (`searching`, `offered`, `accepted`, `arrived`, `on_trip`) are returned; terminated rides (`completed`, `cancelled`, `no_driver`) return `ride: null`.
 * **Payload:**
 ```json
 {

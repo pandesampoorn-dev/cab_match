@@ -129,6 +129,8 @@ export class DispatchService {
         fare: ride.fare,
         tripMin: ride.eta_min || 0,
         etaMin: ride.eta_min || 0,
+        pickupEtaMin: 3,
+        pickupDistanceKm: 1.5,
         timeoutMs: timeRemainingMs,
         expiresAt: Date.now() + timeRemainingMs,
         batchIndex: matchedOffer.batch_index,
@@ -176,7 +178,7 @@ export class DispatchService {
     const pickup = { lat: ride.pickup_lat, lng: ride.pickup_lng };
     const candidates = await SupplyService.findAvailableDriversInRings(pickup, env.maxRings);
 
-    // Rule: Ek driver ko ek waqt pe sirf EK offer (exclude already locked/offered drivers)
+    // Rule: One driver gets only ONE offer at a time (exclude already locked/offered drivers)
     const lockedDrivers = await this.getLockedDriverIds();
     const excludeSet = new Set([...excludeDriverIds, ...lockedDrivers]);
     const eligible = candidates.filter((d) => !excludeSet.has(d.id));
@@ -455,6 +457,7 @@ export class DispatchService {
 
     const formattedForDriver = await this.formatRideForDriver(ride, driver, {
       route: routeForDriver,
+      tripRoute: tripCoords,
       etaMin: 0,
     });
 
@@ -572,7 +575,6 @@ export class DispatchService {
       notice: 'Your driver cancelled. Finding you another one.',
     });
     emitToRider(ride.rider_id, 'ride', riderPayload);
-    emitToRider(ride.rider_id, 'ride:update', riderPayload);
     emitToOps('ride:update', ride.toJSON());
 
     logger.warn(`Driver ${driverId} cancelled ride ${ride.id}. Re-dispatching to another driver...`);
@@ -600,6 +602,27 @@ export class DispatchService {
     ride.timeline = [...ride.timeline, { status: 'cancelled', at: Date.now(), reason }];
     await ride.save();
 
+    activeTrackers.delete(rideId);
+
+    // If ride was in offered stage, revoke offer immediately for all offered drivers
+    try {
+      const activeOffers = await RideOffer.findAll({
+        where: { ride_id: rideId, status: 'offered' },
+      });
+      for (const offer of activeOffers) {
+        offer.status = 'revoked';
+        await offer.save();
+        for (const driverId of offer.driver_ids || []) {
+          emitToDriver(driverId, 'offer_revoked', {
+            rideId,
+            reason: 'cancelled',
+          });
+        }
+      }
+    } catch (e) {
+      console.warn(`[DispatchService] Failed to revoke active offers on cancel for ride ${rideId}:`, e.message);
+    }
+
     let driver = null;
     if (ride.driver_id) {
       driver = await Driver.findByPk(ride.driver_id);
@@ -608,7 +631,6 @@ export class DispatchService {
         reason: 'cancelled',
         rideId,
       });
-      emitToDriver(ride.driver_id, 'ride:cancelled', { rideId, reason });
     }
 
     emitRideEnded(ride, reason, driver);
@@ -639,24 +661,13 @@ export class DispatchService {
   }
 
   static async getActiveRideOfRider(riderId) {
-    const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000);
-    const ride = await Ride.findOne({
+    return await Ride.findOne({
       where: {
         rider_id: riderId,
-        status: ['searching', 'offered', 'accepted', 'arrived', 'on_trip', 'no_driver'],
+        status: ['searching', 'offered', 'accepted', 'arrived', 'on_trip'],
       },
       order: [['created_at', 'DESC']],
     });
-
-    if (!ride) return null;
-
-    // If it's no_driver, only treat as active if it occurred in the last 10 minutes
-    if (ride.status === 'no_driver') {
-      const updatedAt = new Date(ride.updated_at || ride.created_at);
-      if (updatedAt < tenMinutesAgo) return null;
-    }
-
-    return ride;
   }
 
   static async getFullRidePayload(ride, driver = null) {
@@ -752,8 +763,9 @@ export class DispatchService {
     const rider = await Rider.findByPk(r.rider_id);
     const pickup = { lat: r.pickup_lat, lng: r.pickup_lng };
     const drop = { lat: r.drop_lat, lng: r.drop_lng };
+    const tracker = activeTrackers.get(r.id);
 
-    const tripCoords = extra.tripRoute || rideRouteCache.get(r.id) || r.route_coords || [
+    const tripCoords = extra.tripRoute || tracker?.tripCoords || rideRouteCache.get(r.id) || r.route_coords || [
       [pickup.lat, pickup.lng],
       [drop.lat, drop.lng],
     ];
@@ -762,12 +774,24 @@ export class DispatchService {
     if (!route) {
       if (['accepted', 'arrived'].includes(r.status)) {
         const d = extra.driver || driver;
-        let pickupCoords = d ? [[d.lat, d.lng], [pickup.lat, pickup.lng]] : tripCoords;
-        if (extra.pickupCoords) pickupCoords = extra.pickupCoords;
+        let pickupCoords = tracker?.pickupCoords;
+        if (!pickupCoords && extra.pickupCoords) {
+          pickupCoords = extra.pickupCoords;
+        }
+        if (!pickupCoords && d && d.lat && d.lng) {
+          try {
+            const pRoute = await RoutingService.getRoute({ lat: d.lat, lng: d.lng }, pickup);
+            if (pRoute.coords && pRoute.coords.length > 0) pickupCoords = pRoute.coords;
+          } catch (_) {}
+        }
+        if (!pickupCoords) {
+          pickupCoords = d ? [[d.lat, d.lng], [pickup.lat, pickup.lng]] : tripCoords;
+        }
+
         route = {
           phase: 'pickup',
           coords: pickupCoords,
-          km: extra.pickupKm !== undefined ? extra.pickupKm : 1.5,
+          km: extra.pickupKm !== undefined ? extra.pickupKm : (tracker?.pickupKm || 1.5),
           min: extra.etaMin !== undefined ? extra.etaMin : 3,
         };
       } else {

@@ -209,7 +209,7 @@ Send periodically (every 10 seconds) to maintain rider's live coordinates:
 ### 2.3 Server $\rightarrow$ Rider App (Incoming Events)
 
 #### 1. `sync` — Reconnect Recovery
-Sent immediately when rider connects or reconnects. Restores full active ride state (including `searching`, `offered`, `accepted`, `arrived`, `on_trip`, and recent `no_driver`):
+Sent immediately when rider connects or reconnects. Restores full active ongoing ride state (`searching`, `offered`, `accepted`, `arrived`, `on_trip`). If no active ride is ongoing (e.g. previous ride ended or reached `no_driver`), `ride` is `null`:
 * **Event:** `sync`
 * **Payload:**
 ```json
@@ -280,7 +280,7 @@ Fired every 1 second during active rides with driver's live GPS, rotation headin
 ---
 
 #### 3. `ride:ended` — Final Receipt Event
-Guaranteed final event sent when a ride finishes (trip completed, rider cancelled, driver cancelled, ops cancelled, or timeout / `no_driver`). Use this to clear active ride and render the receipt:
+Guaranteed final event sent when a ride finishes (trip completed, rider cancelled, ops cancelled, or timeout / `no_driver`). Use this to clear active ride and render the receipt:
 * **Event:** `ride:ended`
 * **Payload:**
 ```json
@@ -301,7 +301,10 @@ Guaranteed final event sent when a ride finishes (trip completed, rider cancelle
   "drop": { "lat": 28.6250, "lng": 77.2150 }
 }
 ```
-*(Reasons: `completed`, `cancelled`, `rider_cancelled`, `driver_cancelled`, `no_driver`)*
+*(Reasons: `completed`, `cancelled`, `rider_cancelled`, `no_driver`)*
+
+> [!NOTE]
+> **Driver Cancellation Re-dispatch:** When a driver cancels an accepted ride, the rider does **NOT** receive `ride:ended`. Instead, the ride is automatically re-dispatched to other drivers. The rider receives `ride:update` with `status: "searching"` and `notice: "Your driver cancelled. Finding you another one."`. The rider app should remain in searching mode with the radar active.
 
 ---
 ---
@@ -325,7 +328,60 @@ const driverSocket: Socket = io('http://localhost:4000/driver', {
 
 ---
 
-### 3.2 Driver App $\rightarrow$ Server (Client Actions & Acks)
+### 3.2 Server $\rightarrow$ Driver App Initial State & Reconnect (`sync`)
+Sent immediately when driver connects or reconnects. Restores full driver profile, active ongoing ride with embedded route, and any active pending offer:
+* **Event:** `sync`
+* **Payload (Active Ride Example):**
+```json
+{
+  "driver": {
+    "id": "driver_01",
+    "name": "Rajesh Sharma",
+    "online": true,
+    "status": "busy",
+    "lat": 28.6251,
+    "lng": 77.2152,
+    "heading": 140
+  },
+  "ride": {
+    "id": "ride_1791919949941_1",
+    "rideId": "ride_1791919949941_1",
+    "status": "accepted",
+    "riderId": "rider_01",
+    "riderName": "Priya Sharma",
+    "riderPhone": "+919876543210",
+    "pickup": { "lat": 28.6139, "lng": 77.2090 },
+    "pickup_lat": 28.6139,
+    "pickup_lng": 77.2090,
+    "drop": { "lat": 28.6250, "lng": 77.2150 },
+    "drop_lat": 28.6250,
+    "drop_lng": 77.2150,
+    "fare": 90,
+    "distanceKm": 2.72,
+    "etaMin": 3,
+    "tripMin": 5,
+    "route": {
+      "phase": "pickup",
+      "coords": [[28.6251, 77.2152], [28.6139, 77.2090]],
+      "km": 1.5,
+      "min": 3
+    },
+    "tripRoute": [[28.6139, 77.2090], [28.6250, 77.2150]]
+  },
+  "route": {
+    "phase": "pickup",
+    "coords": [[28.6251, 77.2152], [28.6139, 77.2090]],
+    "km": 1.5,
+    "min": 3
+  },
+  "offer": null
+}
+```
+*(If no active ride is in progress, `ride: null` and `route: null`).*
+
+---
+
+### 3.3 Driver App $\rightarrow$ Server (Client Actions & Acks)
 
 #### 1. `online` — Go Online & Available
 Registers driver in the H3 supply index. Accepts empty payload `{}` if GPS is not yet acquired:
@@ -374,7 +430,8 @@ Streamed every 3 seconds (`LOCATION_PING_MS = 3000`):
   "driverId": "driver_01",
   "lat": 28.6251,
   "lng": 77.2152,
-  "heading": 140
+  "heading": 140,
+  "cell": "872fb516bffffff"
 }
 ```
 
@@ -458,7 +515,14 @@ Declines current offer and unlocks driver immediately:
     "pickup": { "lat": 28.6139, "lng": 77.2090 },
     "drop": { "lat": 28.6250, "lng": 77.2150 },
     "fare": 90,
-    "distanceKm": 2.72
+    "distanceKm": 2.72,
+    "route": {
+      "phase": "pickup",
+      "coords": [[28.6139, 77.2090]],
+      "km": 0,
+      "min": 0
+    },
+    "tripRoute": [[28.6139, 77.2090], [28.6250, 77.2150]]
   },
   "route": {
     "phase": "pickup",
@@ -487,7 +551,14 @@ Switches route to `trip` phase (pickup to destination):
     "drop": { "lat": 28.6250, "lng": 77.2150 },
     "fare": 90,
     "distanceKm": 2.72,
-    "tripMin": 5
+    "tripMin": 5,
+    "route": {
+      "phase": "trip",
+      "coords": [[28.6139, 77.2090], [28.6250, 77.2150]],
+      "km": 2.72,
+      "min": 5
+    },
+    "tripRoute": [[28.6139, 77.2090], [28.6250, 77.2150]]
   },
   "route": {
     "phase": "trip",
@@ -599,16 +670,17 @@ Sent simultaneously to top candidate drivers. Driver is locked from receiving co
 
 ---
 
-#### 3. `offer_revoked` — Offer Expired or Lost Race
+#### 3. `offer_revoked` — Offer Expired, Cancelled, or Lost Race
+Sent when the 15-second timer expires, another driver won the race, or the rider cancelled while the offer was pending:
 * **Event:** `offer_revoked`
 * **Payload:**
 ```json
 {
   "rideId": "ride_1791919949941_1",
-  "reason": "accepted_by_other"
+  "reason": "cancelled"
 }
 ```
-*(Reasons: `accepted_by_other`, `timeout`, `declined`)*
+*(Reasons: `accepted_by_other`, `timeout`, `declined`, `cancelled`)*
 
 ---
 
@@ -619,31 +691,17 @@ Pushed on accept, arrive, start, and live updates:
 
 ---
 
-#### 5. `ride:ended` — Final Event for Driver
+#### 5. `ride:ended` — Final Terminal Event for Driver
+Sent when the ride completes or is cancelled after driver accepted:
 * **Event:** `ride:ended`
 * **Payload:**
 ```json
 {
   "rideId": "ride_1791919949941_1",
-  "reason": "completed",
-  "fare": 90,
-  "tripKm": 2.72,
-  "distanceKm": 2.72
+  "reason": "cancelled"
 }
 ```
 *(Reasons: `completed`, `cancelled`, `driver_cancelled`)*
-
----
-
-#### 6. `ride:cancelled` — Rider Cancelled Notification
-* **Event:** `ride:cancelled`
-* **Payload:**
-```json
-{
-  "rideId": "ride_1791919949941_1",
-  "reason": "rider_cancelled"
-}
-```
 
 ---
 

@@ -73,6 +73,7 @@ export function setupDriverSocket(io) {
         heading: d.heading || 0,
       },
       ride: ridePayload,
+      route: ridePayload ? ridePayload.route : null,
       offer: activeOffer,
     });
 
@@ -119,7 +120,14 @@ export function setupDriverSocket(io) {
           emitToRider(activeRide.rider_id, 'ride', payload);
         }
 
-        return { ok: true, ...res };
+        return {
+          ok: true,
+          driverId: d.id,
+          lat: coords.lat,
+          lng: coords.lng,
+          heading: res.heading !== undefined ? res.heading : (d.heading || 0),
+          cell: res.cell,
+        };
       })
     );
 
