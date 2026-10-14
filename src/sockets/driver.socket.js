@@ -1,6 +1,6 @@
 import { Driver } from '../models/index.js';
 import { SupplyService } from '../services/supply.service.js';
-import { DispatchService } from '../services/dispatch.service.js';
+import { DispatchService, emitToRider } from '../services/dispatch.service.js';
 import { isLatLng, parseLatLng } from '../geo.js';
 
 const handle = (fn) => async (data, ack) => {
@@ -55,8 +55,13 @@ export function setupDriverSocket(io) {
     const d = socket.data.driver;
     socket.join(`driver:${d.id}`);
 
-    // Re-sync on connect
+    // Re-sync on connect (with active offer and full ride state)
     const activeRide = await DispatchService.getActiveRideOfDriver(d.id);
+    const activeOffer = await DispatchService.getActiveOfferOfDriver(d.id);
+    const ridePayload = activeRide
+      ? await DispatchService.formatRideForDriver(activeRide, d)
+      : null;
+
     socket.emit('sync', {
       driver: {
         id: d.id,
@@ -65,22 +70,30 @@ export function setupDriverSocket(io) {
         status: d.status,
         lat: d.lat,
         lng: d.lng,
+        heading: d.heading || 0,
       },
-      ride: activeRide ? activeRide.toJSON() : null,
+      ride: ridePayload,
+      offer: activeOffer,
     });
 
     socket.on(
       'online',
       handle(async (pos) => {
-        const coords = parseLatLng(pos);
-        return await SupplyService.setOnline(d.id, coords);
+        const coords = pos ? parseLatLng(pos) : null;
+        const res = await SupplyService.setOnline(d.id, coords);
+        d.online = true;
+        d.status = 'available';
+        return { ok: true, driver: { id: d.id, online: true, status: 'available' }, ...res };
       })
     );
 
     socket.on(
       'offline',
       handle(async () => {
-        return await SupplyService.setOffline(d.id);
+        const res = await SupplyService.setOffline(d.id);
+        d.online = false;
+        d.status = 'offline';
+        return { ok: true, driver: { id: d.id, online: false, status: 'offline' }, ...res };
       })
     );
 
@@ -89,7 +102,24 @@ export function setupDriverSocket(io) {
       handle(async (pos) => {
         const coords = parseLatLng(pos);
         if (!coords) throw new Error('Invalid coordinates: expected { lat, lng }');
-        return await SupplyService.updateLocation(d.id, coords);
+        const heading = pos.heading !== undefined ? Number(pos.heading) : undefined;
+        const speed = pos.speed !== undefined ? Number(pos.speed) : undefined;
+        const locPayload = { ...coords, heading, speed };
+
+        const res = await SupplyService.updateLocation(d.id, locPayload);
+        d.lat = coords.lat;
+        d.lng = coords.lng;
+        if (res.heading !== undefined) d.heading = res.heading;
+
+        // If driver has an active ride, push live driver location update to tracker & rider
+        const activeRide = await DispatchService.getActiveRideOfDriver(d.id);
+        if (activeRide) {
+          DispatchService.updateDriverLiveLocation(activeRide.id, d.id, locPayload);
+          const payload = DispatchService.formatRideForRider(activeRide, d);
+          emitToRider(activeRide.rider_id, 'ride', payload);
+        }
+
+        return { ok: true, ...res };
       })
     );
 
@@ -131,10 +161,7 @@ export function setupDriverSocket(io) {
     socket.on(
       'ride:cancel',
       handle(async () => {
-        const ride = await DispatchService.getActiveRideOfDriver(d.id);
-        if (ride) {
-          return await DispatchService.cancelRide(ride.id, 'driver_cancelled');
-        }
+        return await DispatchService.cancelRideByDriver(d.id);
       })
     );
   });

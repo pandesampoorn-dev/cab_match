@@ -1,8 +1,5 @@
 # WebSocket & Socket.IO Event Guide
 
-This document is the complete contract reference for frontend developers (React, React Native, Flutter, Web) and QA engineers testing the ride-hailing dispatch server via Postman or Socket.IO client libraries.
-
----
 
 ## 1. Connection Overview
 
@@ -38,9 +35,10 @@ Authentication is frictionless. Provide your ID and name either via **Socket.IO 
 }
 ```
 
-### Initial State (`sync`)
-Sent by the server immediately upon successful connection:
+### Initial State / Reconnect (`sync`)
+Sent by the server immediately upon connection or reconnect:
 * **Event:** `sync`
+* **Behavior:** Returns driver state, active ride (with full route and rider details), and any active pending offer with remaining countdown timer.
 * **Payload:**
 ```json
 {
@@ -50,11 +48,14 @@ Sent by the server immediately upon successful connection:
     "online": true,
     "status": "available",
     "lat": 28.6251,
-    "lng": 77.2152
+    "lng": 77.2152,
+    "heading": 135
   },
-  "ride": null
+  "ride": null,
+  "offer": null
 }
 ```
+*(When on an active ride or offer, full objects are provided instead of null).*
 
 ---
 
@@ -63,31 +64,29 @@ Sent by the server immediately upon successful connection:
 #### 1. Go Online
 Marks driver as active and registers them in the H3 geospatial supply index.
 * **Event:** `online`
-* **Payload:**
-```json
-{
-  "lat": 28.6251,
-  "lng": 77.2152
-}
-```
+* **Payload:** Optional GPS `{ "lat": 28.6251, "lng": 77.2152 }` OR empty `{}` (server safely accepts empty payload and sets driver available).
 * **Ack Response:**
 ```json
 {
   "ok": true,
-  "driverId": "driver_01",
-  "online": true,
-  "status": "available"
+  "driver": {
+    "id": "driver_01",
+    "online": true,
+    "status": "available"
+  }
 }
 ```
 
-#### 2. Live GPS Location Update
-Driver GPS heartbeat sent every 3 to 5 seconds. Fast-writes to Redis and updates the Uber H3 hexagon cell.
+#### 2. Live GPS Location & Heading (`location`)
+Driver streams GPS heartbeat (every 3 to 5s) along with `heading` and optional `speed`. Fast-writes to Redis and forwards to active ride's rider so car icon rotates accurately.
 * **Event:** `location`
 * **Payload:**
 ```json
 {
   "lat": 28.6275,
-  "lng": 77.2180
+  "lng": 77.2180,
+  "heading": 140,
+  "speed": 35
 }
 ```
 * **Ack Response:**
@@ -97,12 +96,13 @@ Driver GPS heartbeat sent every 3 to 5 seconds. Fast-writes to Redis and updates
   "driverId": "driver_01",
   "lat": 28.6275,
   "lng": 77.2180,
+  "heading": 140,
   "cell": "872fb516bffffff"
 }
 ```
 
 #### 3. Accept Batch Offer (Race Condition Winner)
-Driver accepts a broadcasted ride offer. Uses an atomic Redis lock (`NX EX 15`). First driver to accept wins.
+Driver accepts a broadcasted ride offer. Uses an atomic Redis lock (`NX EX 120`). First driver to accept wins.
 * **Event:** `offer:accept`
 * **Payload:**
 ```json
@@ -116,14 +116,35 @@ Driver accepts a broadcasted ride offer. Uses an atomic Redis lock (`NX EX 15`).
   "ok": true,
   "ride": {
     "id": "ride_1791919949941_1",
+    "rideId": "ride_1791919949941_1",
     "status": "accepted",
-    "driver_id": "driver_01",
+    "riderId": "rider_01",
+    "riderName": "Priya Sharma",
+    "riderPhone": null,
+    "pickup": { "lat": 28.6139, "lng": 77.2090 },
     "pickup_lat": 28.6139,
     "pickup_lng": 77.2090,
+    "drop": { "lat": 28.6250, "lng": 77.2150 },
     "drop_lat": 28.6250,
     "drop_lng": 77.2150,
     "fare": 90,
-    "distance_km": 2.72
+    "distanceKm": 2.72,
+    "distance_km": 2.72,
+    "etaMin": 3,
+    "tripMin": 5,
+    "route": {
+      "phase": "pickup",
+      "coords": [[28.6251, 77.2152], [28.6139, 77.2090]],
+      "km": 1.5,
+      "min": 3
+    },
+    "tripRoute": [[28.6139, 77.2090], [28.6250, 77.2150]]
+  },
+  "route": {
+    "phase": "pickup",
+    "coords": [[28.6251, 77.2152], [28.6139, 77.2090]],
+    "km": 1.5,
+    "min": 3
   }
 }
 ```
@@ -136,7 +157,7 @@ Driver accepts a broadcasted ride offer. Uses an atomic Redis lock (`NX EX 15`).
 ```
 
 #### 4. Decline Offer
-Driver explicitly declines the ride offer.
+Driver explicitly declines the ride offer. Immediately unlocks driver to receive future offers.
 * **Event:** `offer:decline`
 * **Payload:**
 ```json
@@ -159,7 +180,21 @@ Driver arrives at the passenger pickup point.
 ```json
 {
   "ok": true,
-  "ride": { "status": "arrived", "id": "ride_1791919949941_1" }
+  "ride": {
+    "id": "ride_1791919949941_1",
+    "status": "arrived",
+    "riderName": "Priya Sharma",
+    "pickup": { "lat": 28.6139, "lng": 77.2090 },
+    "drop": { "lat": 28.6250, "lng": 77.2150 },
+    "fare": 90,
+    "distanceKm": 2.72
+  },
+  "route": {
+    "phase": "pickup",
+    "coords": [[28.6139, 77.2090]],
+    "km": 0,
+    "min": 0
+  }
 }
 ```
 
@@ -171,7 +206,22 @@ Driver starts the trip after rider boards.
 ```json
 {
   "ok": true,
-  "ride": { "status": "on_trip", "id": "ride_1791919949941_1" }
+  "ride": {
+    "id": "ride_1791919949941_1",
+    "status": "on_trip",
+    "riderName": "Priya Sharma",
+    "pickup": { "lat": 28.6139, "lng": 77.2090 },
+    "drop": { "lat": 28.6250, "lng": 77.2150 },
+    "fare": 90,
+    "distanceKm": 2.72,
+    "tripMin": 5
+  },
+  "route": {
+    "phase": "trip",
+    "coords": [[28.6139, 77.2090], [28.6250, 77.2150]],
+    "km": 2.72,
+    "min": 5
+  }
 }
 ```
 
@@ -183,19 +233,29 @@ Driver ends the trip at the destination. Driver is freed and returned to `availa
 ```json
 {
   "ok": true,
-  "ride": { "status": "completed", "id": "ride_1791919949941_1" }
+  "fare": 90,
+  "distanceKm": 2.72,
+  "tripKm": 2.72,
+  "ride": {
+    "id": "ride_1791919949941_1",
+    "status": "completed",
+    "fare": 90,
+    "distanceKm": 2.72
+  }
 }
 ```
 
-#### 8. Cancel Active Ride
+#### 8. Driver Cancel (Automatic Re-dispatch)
 Driver cancels the assigned ride.
 * **Event:** `ride:cancel`
+* **Behavior:** Driver is freed immediately. The ride is **NOT permanently cancelled**; it transitions back to `searching` and is instantly re-broadcasted to the next available driver. The rider receives `"Your driver cancelled. Finding you another one."`.
 * **Payload:** `{}`
 * **Ack Response:**
 ```json
 {
   "ok": true,
-  "ride": { "status": "cancelled", "id": "ride_1791919949941_1" }
+  "message": "Ride cancelled. Rider is being re-assigned to another driver.",
+  "ride": { "id": "ride_1791919949941_1", "status": "searching" }
 }
 ```
 
@@ -218,19 +278,29 @@ Driver goes offline and is removed from the active dispatch pool.
 ### Server -> Client Events (Driver Incoming)
 
 #### 1. Incoming Ride Offer (`offer`)
-Broadcasted simultaneously to the top 3 nearest drivers in the current batch.
+Broadcasted simultaneously to top available drivers in current batch. Drivers are locked from receiving another conflicting offer during this timer.
 * **Event:** `offer`
 * **Payload:**
 ```json
 {
   "rideId": "ride_1791919949941_1",
+  "riderId": "rider_01",
+  "riderName": "Priya Sharma",
   "pickup": { "lat": 28.6139, "lng": 77.2090 },
+  "pickup_lat": 28.6139,
+  "pickup_lng": 77.2090,
   "drop": { "lat": 28.6250, "lng": 77.2150 },
+  "drop_lat": 28.6250,
+  "drop_lng": 77.2150,
   "distanceKm": 2.72,
+  "distance_km": 2.72,
   "fare": 90,
+  "tripMin": 5,
+  "etaMin": 5,
   "timeoutMs": 15000,
+  "expiresAt": 1791919964941,
   "batchIndex": 1,
-  "pickupEtaMin": 4.9,
+  "pickupEtaMin": 3,
   "pickupDistanceKm": 1.2
 }
 ```
@@ -247,18 +317,25 @@ Sent when the 15-second timer expires, or another driver won the race.
 ```
 *(Reasons: `accepted_by_other`, `timeout`, `declined`)*
 
-#### 3. Ride Completed (`ride:completed`)
+#### 3. Live Ride Updates for Driver (`ride:update`)
+Pushed to driver on every milestone (`accepted`, `arrived`, `on_trip`) and during live tracking:
+* **Event:** `ride:update`
+* **Payload:** Complete ride object including `riderName`, `pickup`, `drop`, and active `route: { phase, coords, km, min }`.
+
+#### 4. Ride Completed Notification (`ride:completed`)
 Sent when trip ends successfully.
 * **Event:** `ride:completed`
 * **Payload:**
 ```json
 {
   "rideId": "ride_1791919949941_1",
-  "fare": 90
+  "fare": 90,
+  "distanceKm": 2.72,
+  "tripKm": 2.72
 }
 ```
 
-#### 4. Ride Cancelled (`ride:cancelled`)
+#### 5. Ride Cancelled by Rider (`ride:cancelled`)
 Sent if rider cancels the ride before trip starts.
 * **Event:** `ride:cancelled`
 * **Payload:**
@@ -281,9 +358,10 @@ Sent if rider cancels the ride before trip starts.
 }
 ```
 
-### Initial State (`sync`)
-Sent immediately upon connection:
+### Initial State / Reconnect (`sync`)
+Sent immediately upon connection / reconnect:
 * **Event:** `sync`
+* **Behavior:** Returns rider info and the active ride with full payload (planned `tripRoute`, `route`, `driver`, `etaMin`, `search` hex rings). Includes rides in `searching`, `offered`, `accepted`, `arrived`, `on_trip`, and recent `no_driver` states so reconnecting riders never lose state.
 * **Payload:**
 ```json
 {
@@ -291,12 +369,32 @@ Sent immediately upon connection:
   "ride": null
 }
 ```
+*(If an active ride exists, `ride` contains the complete live ride object with `tripRoute`, `route`, `search`, etc.)*
 
 ---
 
 ### Client -> Server Events (Rider Actions)
 
-#### 1. Fare & Route Quote (`quote`)
+#### 1. Live Location Heartbeat (`location`)
+Sent by rider app periodically (e.g., every 10 seconds) to maintain rider's latest GPS position:
+* **Event:** `location`
+* **Payload:**
+```json
+{
+  "lat": 28.6139,
+  "lng": 77.2090
+}
+```
+* **Ack Response:**
+```json
+{
+  "ok": true,
+  "lat": 28.6139,
+  "lng": 77.2090
+}
+```
+
+#### 2. Fare & Route Quote (`quote`)
 Calculates real OSRM road distance, duration, and price estimate without creating a ride.
 * **Event:** `quote`
 * **Payload:**
@@ -312,14 +410,43 @@ Calculates real OSRM road distance, duration, and price estimate without creatin
   "ok": true,
   "distanceKm": 2.72,
   "durationMin": 4.9,
+  "tripMin": 5,
   "fare": 90,
   "road": true,
   "pickup": { "lat": 28.6139, "lng": 77.2090 },
-  "drop": { "lat": 28.6250, "lng": 77.2150 }
+  "drop": { "lat": 28.6250, "lng": 77.2150 },
+  "pickupEtaMin": 3,
+  "tripRoute": [
+    [28.6139, 77.2090],
+    [28.6200, 77.2120],
+    [28.6250, 77.2150]
+  ],
+  "coords": [
+    [28.6139, 77.2090],
+    [28.6200, 77.2120],
+    [28.6250, 77.2150]
+  ],
+  "route": {
+    "phase": "trip",
+    "coords": [
+      [28.6139, 77.2090],
+      [28.6200, 77.2120],
+      [28.6250, 77.2150]
+    ]
+  },
+  "nearby": [
+    {
+      "id": "driver_01",
+      "name": "Rajesh Sharma",
+      "lat": 28.6150,
+      "lng": 77.2100,
+      "vehicle": { "make": "Maruti", "model": "Dzire", "plate": "DL 01 AB 1234" }
+    }
+  ]
 }
 ```
 
-#### 2. Check Nearby Drivers (`nearby`)
+#### 3. Check Nearby Drivers (`nearby`)
 Finds available drivers in nearby H3 rings.
 * **Event:** `nearby`
 * **Payload:**
@@ -339,13 +466,14 @@ Finds available drivers in nearby H3 rings.
       "name": "Rajesh Sharma",
       "lat": 28.6150,
       "lng": 77.2100,
+      "heading": 135,
       "vehicle": { "make": "Maruti", "model": "Dzire", "plate": "DL 01 AB 1234" }
     }
   ]
 }
 ```
 
-#### 3. Request a Ride (`ride:request`)
+#### 4. Request a Ride (`ride:request`)
 Creates a new ride and kicks off the Batch Broadcast dispatch engine (Top 3 drivers, 15s timeout).
 * **Event:** `ride:request`
 * **Payload:**
@@ -373,7 +501,7 @@ Creates a new ride and kicks off the Batch Broadcast dispatch engine (Top 3 driv
 }
 ```
 
-#### 4. Cancel Ride (`ride:cancel`)
+#### 5. Cancel Ride (`ride:cancel`)
 Cancels the searching or accepted ride.
 * **Event:** `ride:cancel`
 * **Payload:** `{}`
@@ -392,9 +520,9 @@ Cancels the searching or accepted ride.
 
 ### Server -> Client Events (Rider Incoming)
 
-#### Live Ride State Updates (`ride`)
-The server pushes this event at every milestone of the ride lifecycle:
-* **Event:** `ride`
+#### 1. Live Ride State Updates (`ride` / `ride:update`)
+The server pushes this event at every lifecycle transition AND **every 1 second** during active rides with updated driver coordinates, heading, and countdown ETA:
+* **Events:** `ride` (Primary) **AND** `ride:update` (Streamed every 1s)
 * **Payload:**
 ```json
 {
@@ -404,12 +532,14 @@ The server pushes this event at every milestone of the ride lifecycle:
   "drop": { "lat": 28.6250, "lng": 77.2150 },
   "distanceKm": 2.72,
   "fare": 90,
-  "etaMin": 5,
+  "etaMin": 4,
+  "tripMin": 5,
   "driver": {
     "id": "driver_01",
     "name": "Rajesh Sharma",
     "lat": 28.6150,
     "lng": 77.2100,
+    "heading": 135,
     "vehicle": {
       "make": "Maruti",
       "model": "Dzire",
@@ -417,6 +547,21 @@ The server pushes this event at every milestone of the ride lifecycle:
       "plate": "DL 01 AB 1234"
     }
   },
+  "route": {
+    "phase": "pickup",
+    "coords": [[28.6150, 77.2100], [28.6139, 77.2090]]
+  },
+  "tripRoute": [
+    [28.6139, 77.2090],
+    [28.6200, 77.2120],
+    [28.6250, 77.2150]
+  ],
+  "search": {
+    "ring": 0,
+    "rings": 3,
+    "cells": ["8860145b59fffff"]
+  },
+  "offerPending": false,
   "timeline": [
     { "status": "searching", "at": 1791919949941 },
     { "status": "offered", "at": 1791919949945, "batch": 1 },
@@ -425,12 +570,36 @@ The server pushes this event at every milestone of the ride lifecycle:
 }
 ```
 
+#### 2. Terminal Receipt / End Event (`ride:ended`)
+Guaranteed terminal event sent whenever a ride finishes (trip completed, rider cancelled, driver cancelled, ops cancelled, or timeout / `no_driver`):
+* **Event:** `ride:ended`
+* **Payload:**
+```json
+{
+  "rideId": "ride_1791919949941_1",
+  "id": "ride_1791919949941_1",
+  "status": "completed",
+  "reason": "completed",
+  "fare": 90,
+  "tripKm": 2.72,
+  "distanceKm": 2.72,
+  "driverName": "Rajesh Sharma",
+  "driver": {
+    "id": "driver_01",
+    "name": "Rajesh Sharma",
+    "vehicle": { "make": "Maruti", "model": "Dzire", "plate": "DL 01 AB 1234" }
+  },
+  "pickup": { "lat": 28.6139, "lng": 77.2090 },
+  "drop": { "lat": 28.6250, "lng": 77.2150 }
+}
+```
+
 ### Ride Status Lifecycle:
 ```text
-searching -> offered -> accepted -> arrived -> on_trip -> completed
+searching -> offered -> accepted -> arrived -> on_trip -> completed (ride:ended)
     |           |
     v           v
-no_driver   cancelled
+no_driver   cancelled (ride:ended)
 ```
 
 ---

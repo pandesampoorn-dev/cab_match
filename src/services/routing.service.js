@@ -73,6 +73,7 @@ export class RoutingService {
       pickup,
       drop,
       road: route.road,
+      coords: route.coords,
     };
   }
 

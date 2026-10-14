@@ -39,6 +39,11 @@ export const Driver = sequelize.define(
       allowNull: true,
       defaultValue: null,
     },
+    heading: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      defaultValue: 0,
+    },
   },
   {
     tableName: 'drivers',
