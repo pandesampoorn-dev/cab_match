@@ -84,18 +84,20 @@ export class DispatchService {
     const topBatch = ranked.slice(0, env.batchSize);
     const batchDriverIds = topBatch.map((x) => x.driver.id);
 
-    // Save RideOffer record
-    await RideOffer.create({
-      ride_id: ride.id,
-      batch_index: batchIndex,
-      driver_ids: batchDriverIds,
-      status: 'offered',
-    });
-
     ride.status = 'offered';
     const tl = [...ride.timeline, { status: 'offered', at: Date.now(), batch: batchIndex }];
     ride.timeline = tl;
-    await ride.save();
+
+    // Save RideOffer record & update Ride concurrently
+    await Promise.all([
+      RideOffer.create({
+        ride_id: ride.id,
+        batch_index: batchIndex,
+        driver_ids: batchDriverIds,
+        status: 'offered',
+      }),
+      ride.save(),
+    ]);
 
     // Broadcast offer simultaneously to all drivers in the batch
     const offerPayload = {
