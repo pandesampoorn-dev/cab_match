@@ -27,6 +27,12 @@ app.use(logger.httpMiddleware);
 app.use(express.static(path.join(__dirname, '..', 'public')));
 
 // Health & Ops State APIs
+app.get('/api/test', (_req, res) => {
+  res.json({
+    message: 'Backend connected successfully!',
+  });
+});
+
 app.get('/api/health', (_req, res) => {
   res.json({
     ok: true,
@@ -75,12 +81,28 @@ async function start() {
     logger.warn(`Redis connection note: ${e.message}`);
   }
 
+  server.on('error', (err) => {
+    if (err.code === 'EADDRINUSE') {
+      logger.error(`Port ${env.port} is already in use! Kill previous node process or change PORT.`);
+    } else {
+      logger.error(`Server error: ${err.message}`);
+    }
+  });
+
   server.listen(env.port, () => {
     logger.ok(`Server listening on http://localhost:${env.port}`);
     logger.info(`Ops Dashboard: http://localhost:${env.port}`);
     logger.info(`Dispatch: Batch Broadcast (Top ${env.batchSize} drivers, ${env.offerTimeoutMs / 1000}s timeout)`);
   });
 }
+
+process.on('unhandledRejection', (reason) => {
+  console.warn('[Server] Unhandled rejection:', reason?.message || reason);
+});
+
+process.on('uncaughtException', (err) => {
+  console.error('[Server] Uncaught exception:', err.message);
+});
 
 start();
 

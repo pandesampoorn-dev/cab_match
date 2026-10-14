@@ -11,7 +11,7 @@ const handle = (fn) => async (data, ack) => {
   if (typeof data === 'string') {
     try {
       data = JSON.parse(data);
-    } catch (_) {}
+    } catch (_) { }
   }
   try {
     const out = await fn(data || {});

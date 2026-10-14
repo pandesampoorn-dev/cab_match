@@ -553,6 +553,15 @@ Creates a new ride and kicks off the Batch Broadcast dispatch engine (Top 3 driv
     "fare": 90,
     "etaMin": 5,
     "driver": null,
+    "route": null,
+    "search": {
+      "ring": 0,
+      "cells": 19,
+      "rings": [
+        ["8860145b59fffff"],
+        ["8860145b58fffff", "8860145b5bfffff", "..."]
+      ]
+    },
     "timeline": [{ "status": "searching", "at": 1791919949941 }]
   }
 }

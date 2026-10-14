@@ -27,6 +27,7 @@ export const env = {
   batchSize: num('BATCH_SIZE', 3),
   offerTimeoutMs: num('OFFER_TIMEOUT_MS', 15000),
   locationTtlMs: num('LOCATION_TTL_MS', 30000),
+  maxBatches: num('MAX_BATCHES', 3),
 
   // H3 resolution for supply index. 7 ~ 1.2 km hex diameter, 8 ~ 0.46 km.
   h3Res: num('H3_RES', 7),

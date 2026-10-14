@@ -152,14 +152,21 @@ Creates ride in `searching` status and initiates batch broadcast to nearest driv
     "distance_km": 2.72,
     "fare": 90,
     "etaMin": 5,
-    "tripMin": 5,
     "driver": null,
-    "route": { "phase": "trip", "coords": [...] },
-    "tripRoute": [...],
+    "route": null,
+    "tripRoute": [
+      [28.6139, 77.2090],
+      [28.6200, 77.2120],
+      [28.6250, 77.2150]
+    ],
     "search": {
       "ring": 0,
-      "rings": 3,
-      "cells": ["8860145b59fffff"]
+      "cells": 19,
+      "rings": [
+        ["8860145b59fffff"],
+        ["8860145b58fffff", "8860145b5bfffff", "8860145b53fffff", "8860145b57fffff", "8860145b55fffff", "8860145b51fffff"],
+        ["8860145b49fffff", "8860145b4bfffff", "..."]
+      ]
     },
     "offerPending": false
   }
@@ -275,7 +282,34 @@ Fired every 1 second during active rides with driver's live GPS, rotation headin
   "notice": null
 }
 ```
-* **Notice Handling:** If a driver cancels, the status transitions back to `"searching"` and `notice` contains `"Your driver cancelled. Finding you another one."`.
+* **Payload during `searching` / `offered` (e.g., initial search or driver cancel re-dispatch):**
+```json
+{
+  "id": "ride_1791919949941_1",
+  "status": "searching",
+  "pickup": { "lat": 28.6139, "lng": 77.2090 },
+  "drop": { "lat": 28.6250, "lng": 77.2150 },
+  "distanceKm": 2.72,
+  "fare": 90,
+  "etaMin": 5,
+  "tripMin": 5,
+  "driver": null,
+  "route": null,
+  "tripRoute": [[28.6139, 77.2090], [28.6250, 77.2150]],
+  "search": {
+    "ring": 0,
+    "cells": 19,
+    "rings": [
+      ["8860145b59fffff"],
+      ["8860145b58fffff", "8860145b5bfffff", "..."],
+      ["8860145b51fffff", "..."]
+    ]
+  },
+  "offerPending": false,
+  "notice": "Your driver cancelled. Finding you another one."
+}
+```
+* **Notice & Cleanup Handling:** When a driver cancels, the status transitions back to `"searching"`, `driver` becomes `null`, `route` becomes `null`, and `notice` contains `"Your driver cancelled. Finding you another one."`. The rider app clears any previous car markers and polylines from the map, switching smoothly back to the concentric radar animation.
 
 ---
 
@@ -304,7 +338,10 @@ Guaranteed final event sent when a ride finishes (trip completed, rider cancelle
 *(Reasons: `completed`, `cancelled`, `rider_cancelled`, `no_driver`)*
 
 > [!NOTE]
-> **Driver Cancellation Re-dispatch:** When a driver cancels an accepted ride, the rider does **NOT** receive `ride:ended`. Instead, the ride is automatically re-dispatched to other drivers. The rider receives `ride:update` with `status: "searching"` and `notice: "Your driver cancelled. Finding you another one."`. The rider app should remain in searching mode with the radar active.
+> **Immediate Rebooking on `no_driver`:** When a ride finishes with `reason: "no_driver"`, the ride is in a terminal state and the rider's active ride is completely cleared in the backend. The rider can immediately trigger `ride:request` again without receiving an "already has an active ride" error.
+
+> [!NOTE]
+> **Driver Cancellation Re-dispatch:** When a driver cancels an accepted ride, the rider does **NOT** receive `ride:ended`. Instead, the ride is automatically re-dispatched to other drivers. The rider receives `ride:update` with `status: "searching"`, `driver: null`, `route: null`, and `notice: "Your driver cancelled. Finding you another one."`. The rider app should remain in searching mode with the radar active.
 
 ---
 ---
@@ -715,5 +752,14 @@ Sent when the ride completes or is cancelled after driver accepted:
    * Applied dynamically during `accepted` (to pickup) and `on_trip` (to destination).
 3. **One Offer Per Driver:**
    * Drivers with an active, unexpired pending offer are automatically excluded from subsequent dispatch broadcasts until they accept, decline, or timeout.
-4. **Driver Cancellation Re-dispatch:**
-   * When a driver cancels, the ride is **not** aborted. The rider transitions back to `searching` with notice `"Your driver cancelled. Finding you another one."`, and the server immediately dispatches to the next batch.
+4. **Driver Cancellation Re-dispatch & Lock Purge:**
+   * When a driver cancels, the ride is **not** aborted. The rider transitions back to `searching` with `driver: null`, `route: null`, and notice `"Your driver cancelled. Finding you another one."`.
+   * The server immediately deletes the atomic Redis lock (`lock:ride:${rideId}`) and dispatches to the next batch so the new driver can accept without any delay.
+5. **Deterministic `no_driver` Timing Ceiling:**
+   * **Zero supply in area:** Terminates in `< 1s` with `no_driver`.
+   * **Supply exists:** Batch broadcast runs up to a maximum of **3 Batches** (15s per batch = **45 seconds total ceiling**). If Batch 3 times out with no accepts, `ride:ended` (`reason: "no_driver"`) is emitted.
+6. **Radar Animation Structure (`search` Object):**
+   * Returned in `ride:request` ack and during `searching`/`offered` in `ride:update`.
+   * `search.rings`: An array of coordinate cell arrays (`string[][]`), representing each concentric ring (Ring 0, Ring 1, Ring 2) for immediate progressive ripple visualization.
+   * `search.cells`: Total number of cells across all searched rings.
+   * `search.ring`: Current active search ring radius index (e.g. 0).

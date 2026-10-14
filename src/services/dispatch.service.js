@@ -52,10 +52,10 @@ export function emitRideEnded(ride, reason = null, driver = null) {
     driverName,
     driver: driver
       ? {
-          id: driver.id,
-          name: driver.name,
-          vehicle: driver.vehicle,
-        }
+        id: driver.id,
+        name: driver.name,
+        vehicle: driver.vehicle,
+      }
       : null,
     pickup: { lat: r.pickup_lat, lng: r.pickup_lng },
     pickup_lat: r.pickup_lat,
@@ -175,6 +175,20 @@ export class DispatchService {
   }
 
   static async broadcastBatch(ride, batchIndex, excludeDriverIds = []) {
+    const maxBatches = env.maxBatches || 3;
+    if (batchIndex > maxBatches) {
+      ride.status = 'no_driver';
+      const tl = [...ride.timeline, { status: 'no_driver', at: Date.now(), reason: 'max_batches_exceeded' }];
+      ride.timeline = tl;
+      await ride.save();
+
+      await redis.del(`lock:ride:${ride.id}`);
+      emitRideEnded(ride, 'no_driver', null);
+      emitToOps('ride:update', ride.toJSON());
+      logger.warn(`Ride ${ride.id} exhausted max batches (${maxBatches}). Triggering no_driver.`);
+      return;
+    }
+
     const pickup = { lat: ride.pickup_lat, lng: ride.pickup_lng };
     const candidates = await SupplyService.findAvailableDriversInRings(pickup, env.maxRings);
 
@@ -189,6 +203,7 @@ export class DispatchService {
       ride.timeline = tl;
       await ride.save();
 
+      await redis.del(`lock:ride:${ride.id}`);
       emitRideEnded(ride, 'no_driver', null);
       emitToOps('ride:update', ride.toJSON());
       return;
@@ -285,8 +300,12 @@ export class DispatchService {
 
     // 2. Fetch ride and double check status
     const ride = await Ride.findByPk(rideId);
-    if (!ride) throw new Error('Ride not found');
+    if (!ride) {
+      await redis.del(lockKey);
+      throw new Error('Ride not found');
+    }
     if (ride.status !== 'offered') {
+      await redis.del(lockKey);
       throw new Error(`Ride is no longer available (current status: ${ride.status})`);
     }
 
@@ -421,7 +440,7 @@ export class DispatchService {
         offer.driver_ids = offer.driver_ids.filter((id) => id !== driverId);
         await offer.save();
       }
-    } catch (_) {}
+    } catch (_) { }
 
     emitToDriver(driverId, 'offer_revoked', { rideId, reason: 'declined' });
     return { ok: true };
@@ -522,6 +541,8 @@ export class DispatchService {
     await ride.save();
 
     await SupplyService.freeDriver(driverId);
+    activeTrackers.delete(ride.id);
+    await redis.del(`lock:ride:${ride.id}`);
 
     const driver = await Driver.findByPk(driverId);
     const formattedForDriver = await this.formatRideForDriver(ride, driver);
@@ -559,6 +580,7 @@ export class DispatchService {
     // 1. Free driver
     await SupplyService.freeDriver(driverId);
     activeTrackers.delete(ride.id);
+    await redis.del(`lock:ride:${ride.id}`);
 
     // 2. Put ride back into searching status
     ride.driver_id = null;
@@ -603,6 +625,7 @@ export class DispatchService {
     await ride.save();
 
     activeTrackers.delete(rideId);
+    await redis.del(`lock:ride:${rideId}`);
 
     // If ride was in offered stage, revoke offer immediately for all offered drivers
     try {
@@ -745,7 +768,7 @@ export class DispatchService {
               pickup
             );
             if (pRoute.coords && pRoute.coords.length > 0) pickupCoords = pRoute.coords;
-          } catch (_) {}
+          } catch (_) { }
           route = { phase: 'pickup', coords: pickupCoords };
         }
       }
@@ -782,7 +805,7 @@ export class DispatchService {
           try {
             const pRoute = await RoutingService.getRoute({ lat: d.lat, lng: d.lng }, pickup);
             if (pRoute.coords && pRoute.coords.length > 0) pickupCoords = pRoute.coords;
-          } catch (_) {}
+          } catch (_) { }
         }
         if (!pickupCoords) {
           pickupCoords = d ? [[d.lat, d.lng], [pickup.lat, pickup.lng]] : tripCoords;
@@ -841,7 +864,7 @@ export class DispatchService {
 
     // Determine route phase and coords
     let route = extra.route;
-    if (!route) {
+    if (route === undefined) {
       if (['accepted', 'arrived'].includes(r.status) && (driver || extra.driver)) {
         const d = extra.driver || driver;
         const pickupCoords = extra.pickupRoute || [
@@ -849,15 +872,17 @@ export class DispatchService {
           [pickup.lat, pickup.lng],
         ];
         route = { phase: 'pickup', coords: pickupCoords };
+      } else if (['on_trip'].includes(r.status)) {
+        route = { phase: 'trip', coords: tripCoords };
       } else {
-        route = { phase: 'trip', coords: tripRoute };
+        route = null;
       }
     }
 
     // Driver object with heading
     let driverObj = null;
     const d = extra.driver || driver;
-    if (d) {
+    if (d && !['searching', 'offered'].includes(r.status)) {
       driverObj = {
         id: d.id,
         name: d.name,
@@ -873,10 +898,17 @@ export class DispatchService {
     if (['searching', 'offered'].includes(r.status)) {
       const pickupCell = cellOf(pickup, env.h3Res);
       const currentRing = extra.batchIndex ? Math.min(extra.batchIndex - 1, 2) : 0;
+      let ringArrays = [];
+      try {
+        ringArrays = h3.gridDiskDistances(pickupCell, currentRing);
+      } catch (_) {
+        ringArrays = [[pickupCell]];
+      }
+      const totalCells = ringArrays.reduce((acc, curr) => acc + curr.length, 0);
       search = {
         ring: currentRing,
-        rings: env.maxRings || 3,
-        cells: h3.gridDisk(pickupCell, currentRing),
+        cells: totalCells,
+        rings: ringArrays,
       };
     }
 
