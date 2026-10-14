@@ -68,4 +68,14 @@ export function pointAlong(path, alongKm) {
   return { lat: a0 + (b0 - a0) * f, lng: a1 + (b1 - a1) * f, done: false };
 }
 
+export function bearing(a, b) {
+  if (!a || !b) return 0;
+  const dLng = ((b.lng - a.lng) * Math.PI) / 180;
+  const lat1 = (a.lat * Math.PI) / 180;
+  const lat2 = (b.lat * Math.PI) / 180;
+  const y = Math.sin(dLng) * Math.cos(lat2);
+  const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLng);
+  return Math.round(((Math.atan2(y, x) * 180) / Math.PI + 360) % 360);
+}
+
 export { h3 };

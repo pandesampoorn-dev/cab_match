@@ -67,6 +67,11 @@ export const Ride = sequelize.define(
       allowNull: false,
       defaultValue: [],
     },
+    route_coords: {
+      type: DataTypes.JSONB,
+      allowNull: true,
+      defaultValue: [],
+    },
   },
   {
     tableName: 'rides',
