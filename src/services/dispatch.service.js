@@ -970,7 +970,7 @@ setInterval(async () => {
         }
 
         const remDistKm = Math.max(0, tracker.pickupPath.total - tracker.distanceAlongPickupKm);
-        // ETA = seedhi doori × 1.3 ÷ 24 km/h
+        // ETA = straight-line distance × 1.3 ÷ 24 km/h
         const straightKm = km(tracker.currentPos, { lat: ride.pickup_lat, lng: ride.pickup_lng });
         const etaMin = Math.max(1, Math.round(((straightKm * 1.3) / 24) * 60));
 
@@ -1063,7 +1063,7 @@ setInterval(async () => {
         }
 
         const remDistKm = Math.max(0, tracker.tripPath.total - tracker.distanceAlongTripKm);
-        // ETA = seedhi doori × 1.3 ÷ 24 km/h
+        // ETA = straight-line distance × 1.3 ÷ 24 km/h
         const straightKm = km(tracker.currentPos, { lat: ride.drop_lat, lng: ride.drop_lng });
         const remTripMin = Math.max(0, Math.round(((straightKm * 1.3) / 24) * 60));
 
